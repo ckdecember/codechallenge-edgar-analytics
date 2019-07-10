@@ -21,13 +21,45 @@ class Sessionization:
         self.logfile = logfile
         self.inactivityfile = inactivityfile
         self.sessionizationfile = sessionizationfile
-        self.currentLine = None
+        self.inactivityperiod = None
     
+    def read_inactivity(self):
+        inactivefh = open(self.inactivityfile, "r")
+        for line in inactivefh:
+            try:
+                self.inactivityperiod = int(line)
+            except:
+                print ("this is not an integer!")
+                continue
+            print (line, end="")
+        inactivefh.close()
+
     def read_log(self):
         logfh = open(self.logfile, "r")
-        for line in logfh.readlines():
-            print (line, end="")
+        # process on the fly
 
+        header = logfh.readline()
+        header = header.strip()
+        header = header.split(',')
+        print (header)
+
+        for line in logfh.readlines():
+            # ip: identifies the IP address of the device requesting the data. While the SEC anonymizes the last three digits, it uses a consistent formula that allows you to assume that any two ip fields with the duplicate values are referring to the same IP address
+            # date: date of the request (yyyy-mm-dd)
+            # time: time of the request (hh:mm:ss)
+            # cik: SEC Central Index Key
+            # accession: SEC document accession number
+            # extention: Value that helps determine the document being requested
+            fa = line.split(',')
+            faDict = dict(zip(header, fa))
+            print (faDict['ip'])
+        
+        logfh.close()
+
+
+    def write_session(self):
+        
+        pass
 
 def main():
     parser = argparse.ArgumentParser(description="Edgar Analytics")
@@ -38,6 +70,7 @@ def main():
     args = parser.parse_args()
 
     sess = Sessionization(args.log, args.inactivity, args.sessionization)
+    sess.read_inactivity()
     sess.read_log()
 
     # pull args.  test args?
