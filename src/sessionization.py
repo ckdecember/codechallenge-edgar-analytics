@@ -22,6 +22,7 @@ class Sessionization:
         self.inactivityfile = inactivityfile
         self.sessionizationfile = sessionizationfile
         self.inactivityperiod = None
+        self.wantedFields = ['ip', 'date', 'time', 'cik', 'accession', 'extention']
     
     def read_inactivity(self):
         inactivefh = open(self.inactivityfile, "r")
@@ -51,8 +52,10 @@ class Sessionization:
             # accession: SEC document accession number
             # extention: Value that helps determine the document being requested
             fa = line.split(',')
+            # creates a dictionary with the keys from the header
             faDict = dict(zip(header, fa))
-            print (faDict['ip'])
+            faDict = {k:v for key in faDict.items() if key in self.wantedFields}
+            print (faDict.keys())
         
         logfh.close()
 
