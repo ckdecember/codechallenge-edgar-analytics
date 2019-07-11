@@ -61,8 +61,16 @@ class Sessionization:
         
         logfh.close()
 
+        """ IP address of the user exactly as found in log.csv
+        date and time of the first webpage request in the session (yyyy-mm-dd hh:mm:ss)
+        date and time of the last webpage request in the session (yyyy-mm-dd hh:mm:ss)
+        duration of the session in seconds
+        count of webpage requests during the session"""
+
 
     def write_session(self):
+        # find first case, put it into a dictionary? yikes. could get big.
+        # tuple of cik, accession and extention => unique page request
         pass
 
 def main():
