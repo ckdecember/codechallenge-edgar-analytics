@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime, timedelta
 import logging
 import unittest
 
@@ -22,7 +23,7 @@ class Sessionization:
         self.wantedFields = ['ip', 'date', 'time', 'cik', 'accession', 'extention']
         self.sessionStore = sessionStore()
     
-    def read_inactivity(self):
+    def set_inactivity_period(self):
         """ get the inactivity period """
         inactivefh = open(self.inactivityfile, "r")
         for line in inactivefh:
@@ -63,8 +64,7 @@ class Sessionization:
             if not self.sessionStore.sessionExists(key):
                 self.sessionStore.insertSession(key, faDict)
             else:
-                # check time
-                logger.info(faDict['time'])
+                self.sessionStore.updateSession(key, faDict, self.inactivityperiod)
             
             # look for ip/date/time existance first as key
             # if not, store it in dictOfSessions
@@ -85,10 +85,10 @@ class Sessionization:
         date and time of the last webpage request in the session (yyyy-mm-dd hh:mm:ss)
         duration of the session in seconds
         count of webpage requests during the session"""
-
         pass
 
 class sessionStore():
+    """ Stores all the discovered sessions """
     def __init__(self):
         self.sessionDict = {}
    
@@ -99,15 +99,43 @@ class sessionStore():
         else:
             return False
     
-    def insertSession(self, key, sessionDict):
+    def insertSession(self, key, originalRequestDict):
         """ insert a new session only! """
-        s = session(key, sessionDict)
-        s.originalRequestDict = sessionDict
+        s = session(key, originalRequestDict)
+        s.originalRequestDict = originalRequestDict
         self.sessionDict[key] = s
     
-    def updateSession(self, key, sessionDict):
+    def updateSession(self, key, originalRequestDict, inactivity_period):
         """ update existing session """
-        pass
+        # if yes, compare timestamp in sessionDict compared to one in the current line.
+        # if time is longer than the inactivity, seal the session with accurate time or +inactivity_period max.
+        # store list of web requests inside 'session' too which is (cik, accession, extention)
+        # if webrequest is not in list of webrequests, add to list
+        # if it is, don't add to list
+        currentRequestTime = originalRequestDict['time']
+        session = self.sessionDict[key]
+
+        # compare times
+        # if it's longer than the period or equal the session ends. count duration.
+        #dateobj = datetime.datetime(str(currentRequestTime))
+        logger.info("currentreqtimef")
+        #timeobj = datetime(currentRequestTime)
+        #logger.info(timeobj)
+
+        currentRequestTime = datetime.strptime(currentRequestTime, "%H:%M:%S")
+        firstdatetime = datetime.strptime(session.firstdatetime, "%H:%M:%S")
+
+        inactivity_period_delta = timedelta(seconds=inactivity_period)
+
+        logger.info(currentRequestTime)
+        logger.info(firstdatetime)
+
+        if (currentRequestTime - firstdatetime)  >= inactivity_period_delta:
+            logger.info("in!")
+            # just add inactivity period and ignore the rest
+        #    session.duration = session.firstdatetime + inactivity_period
+        #else:
+        #    session.duration = currentRequestTime - session.firstdatetime
 
 class session():
     """ Tracks the user session time access, duration, and page reqs """
@@ -119,8 +147,6 @@ class session():
         self.duration = 0
         self.listOfWebRequests = []
         self.originalRequestDict = originalRequestDict
-    
-    
 
 def main():
     parser = argparse.ArgumentParser(description="Edgar Analytics")
@@ -131,11 +157,9 @@ def main():
     args = parser.parse_args()
 
     sess = Sessionization(args.log, args.inactivity, args.sessionization)
-    sess.read_inactivity()
+    sess.set_inactivity_period()
     sess.read_log()
 
-    # pull args.  test args?
-    #print ("{} {} {}".format(sess.logfile, sess.inactivityfile, sess.sessionizationfile))
     logger.debug("{} {} {}".format(sess.logfile, sess.inactivityfile, sess.sessionizationfile))
 
 if __name__ == "__main__":
