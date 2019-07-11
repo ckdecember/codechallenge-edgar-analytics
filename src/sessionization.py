@@ -32,7 +32,7 @@ class Sessionization:
             except:
                 logger.debug("This is not an integer!")
                 continue
-            print (line, end="")
+            logger.info(line)
         inactivefh.close()
 
     def read_log(self):
@@ -77,7 +77,8 @@ class Sessionization:
         count of webpage requests during the session"""
         #logger.info(self.sessionStore.sessionDict.items())
         for (k,v) in self.sessionStore.sessionDict.items():
-            logger.info(v.originalRequestDict)
+            outputStr = "{},{},{}".format(v.originalRequestDict['ip'], v.firstdatetime, v.lastdatetime)
+            logger.info(outputStr)
 
 class sessionStore():
     """ Stores all the discovered sessions """
@@ -108,19 +109,21 @@ class sessionStore():
         currentRequestTime = originalRequestDict['time']
         session = self.sessionDict[key]
 
-        currentRequestTime = datetime.strptime(currentRequestTime, "%H:%M:%S")
-        firstdatetime = datetime.strptime(session.firstdatetime, "%H:%M:%S")
+        dtCurrentRequestTime = datetime.strptime(currentRequestTime, "%H:%M:%S")
+        dtFirstDateTime = datetime.strptime(session.firstdatetime, "%H:%M:%S")
 
-        inactivity_period_delta = timedelta(seconds=inactivity_period)
+        dtInactivityPeriodDelta = timedelta(seconds=inactivity_period)
 
         # old, stale session, default it to duration of 2 seconds
-        if (currentRequestTime - firstdatetime)  >= inactivity_period_delta:
-            session.duration = inactivity_period_delta
+        if (dtCurrentRequestTime - dtFirstDateTime)  >= dtInactivityPeriodDelta:
+            session.duration = dtInactivityPeriodDelta
             session.webrequests = session.webrequests + 1
+            session.lastdatetime = currentRequestTime
         # existing session, mark the duration and increment the count
         else:
-            session.duration = currentRequestTime - firstdatetime
+            session.duration = dtCurrentRequestTime - dtFirstDateTime
             session.webrequests = session.webrequests + 1
+            session.lastdatetime = currentRequestTime
         
         logger.info(session.duration)
 
