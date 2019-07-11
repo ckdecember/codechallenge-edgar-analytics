@@ -74,7 +74,9 @@ class Sessionization:
         count of webpage requests during the session"""
         #logger.info(self.sessionStore.sessionDict.items())
         for (k,v) in self.sessionStore.sessionDict.items():
-            outputStr = "{},{},{},{},{}".format(v.originalRequestDict['ip'], v.firstdatetime, v.lastdatetime, v.duration, v.webrequests)
+            outputStr = "{},{} {},{} {},{},{}".format(v.originalRequestDict['ip'], \
+                v.originalRequestDict['date'], v.firstdatetime, \
+                v.originalRequestDict['date'], v.lastdatetime, v.duration, v.webrequests)
             logger.info(outputStr)
 
 class sessionStore():
@@ -106,8 +108,13 @@ class sessionStore():
         currentRequestTime = originalRequestDict['time']
         session = self.sessionDict[key]
 
+#        logger.info(currentRequestTime)
+
         dtCurrentRequestTime = datetime.strptime(currentRequestTime, "%H:%M:%S")
         dtFirstDateTime = datetime.strptime(session.firstdatetime, "%H:%M:%S")
+
+#        logger.info(dtCurrentRequestTime)
+
 
         dtInactivityPeriodDelta = timedelta(seconds=inactivity_period)
 
