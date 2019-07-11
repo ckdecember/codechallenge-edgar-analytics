@@ -13,9 +13,6 @@ formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messag
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
-#python ./src/sessionization.py ./input/log.csv ./input/inactivity_period.txt ./output/sessionization.txt
-# yikes, hardcoded spots.  ah wells.
-
 class Sessionization:
     def __init__(self, logfile, inactivityfile, sessionizationfile):
         self.logfile = logfile
@@ -46,14 +43,6 @@ class Sessionization:
         header = header.split(',')
         logger.debug(header)
 
-        # create a data structure that can temp store the values
-        # need a dict of the datastructures for fast access, but could run out of memory
-        # identifier for an entry is IP?
-        # can only detect 'time' by looking at the next date, so this could get large since you have to temp hold
-        # all the values until the end of the file!!!  worry about that later
-        # dict with IP, date, time as key?
-
-
         for line in logfh.readlines():
             # ip: identifies the IP address of the device requesting the data. While the SEC anonymizes the last three digits, it uses a consistent formula that allows you to assume that any two ip fields with the duplicate values are referring to the same IP address
             # date: date of the request (yyyy-mm-dd)
@@ -62,18 +51,22 @@ class Sessionization:
             # accession: SEC document accession number
             # extention: Value that helps determine the document being requested
             fa = line.split(',')
+
             # creates a dictionary with the keys from the header
             faDict = dict(zip(header, fa))
             faDict = {k:v for (k,v) in faDict.items() if k in self.wantedFields}
             logger.debug(faDict)
 
-            # key maker
+            # key maker just for brevity
             key = (faDict['ip'], faDict['date'], faDict['time'])
 
             if not self.sessionStore.sessionExists(key):
                 self.sessionStore.insertSession(key, faDict)
+            else:
+                # check time
+                logger.info(faDict['time'])
+            
             # look for ip/date/time existance first as key
-            # if just IP, there can be dupes.  is that OK?
             # if not, store it in dictOfSessions
             # if yes, compare timestamp in sessionDict compared to one in the current line.
             # if time is longer than the inactivity, seal the session with accurate time or +inactivity_period max.
@@ -81,6 +74,7 @@ class Sessionization:
             # if webrequest is not in list of webrequests, add to list
             # if it is, don't add to list
 
+            # maybe store the value as a session object which also contains original
         
         logfh.close()
 
@@ -99,22 +93,34 @@ class sessionStore():
         self.sessionDict = {}
    
     def sessionExists(self, key):
+        """ check for existing session via key """
         if key in self.sessionDict.keys():
             return True
         else:
             return False
     
     def insertSession(self, key, sessionDict):
-        self.sessionDict[key] = sessionDict
+        """ insert a new session only! """
+        s = session(key, sessionDict)
+        s.originalRequestDict = sessionDict
+        self.sessionDict[key] = s
+    
+    def updateSession(self, key, sessionDict):
+        """ update existing session """
+        pass
 
 class session():
     """ Tracks the user session time access, duration, and page reqs """
-    def __init__(self, ip, datetime):
-        self.ip = ip
-        self.firstdatetime = datetime
-        self.lastdatetime = datetime
-        self.duration = None
+
+    def __init__(self, key, originalRequestDict):
+        self.key = key
+        self.firstdatetime = originalRequestDict['time']
+        self.lastdatetime = None
+        self.duration = 0
         self.listOfWebRequests = []
+        self.originalRequestDict = originalRequestDict
+    
+    
 
 def main():
     parser = argparse.ArgumentParser(description="Edgar Analytics")
