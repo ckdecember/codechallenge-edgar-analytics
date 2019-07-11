@@ -42,7 +42,7 @@ class Sessionization:
         header = logfh.readline()
         header = header.strip()
         header = header.split(',')
-        logger.debug(header)
+        #logger.debug(header)
 
         for line in logfh.readlines():
             # ip: identifies the IP address of the device requesting the data. While the SEC anonymizes the last three digits, it uses a consistent formula that allows you to assume that any two ip fields with the duplicate values are referring to the same IP address
@@ -56,7 +56,7 @@ class Sessionization:
             # creates a dictionary with the keys from the header
             faDict = dict(zip(header, fa))
             faDict = {k:v for (k,v) in faDict.items() if k in self.wantedFields}
-            logger.debug(faDict)
+            #logger.debug(faDict)
 
             # key maker just for brevity
             key = (faDict['ip'], faDict['date'], faDict['time'])
@@ -66,16 +66,6 @@ class Sessionization:
             else:
                 self.sessionStore.updateSession(key, faDict, self.inactivityperiod)
             
-            # look for ip/date/time existance first as key
-            # if not, store it in dictOfSessions
-            # if yes, compare timestamp in sessionDict compared to one in the current line.
-            # if time is longer than the inactivity, seal the session with accurate time or +inactivity_period max.
-            # store list of web requests inside 'session' too which is (cik, accession, extention)
-            # if webrequest is not in list of webrequests, add to list
-            # if it is, don't add to list
-
-            # maybe store the value as a session object which also contains original
-        
         logfh.close()
 
     def write_session(self):
@@ -85,7 +75,9 @@ class Sessionization:
         date and time of the last webpage request in the session (yyyy-mm-dd hh:mm:ss)
         duration of the session in seconds
         count of webpage requests during the session"""
-        pass
+        #logger.info(self.sessionStore.sessionDict.items())
+        for (k,v) in self.sessionStore.sessionDict.items():
+            logger.info(v.originalRequestDict)
 
 class sessionStore():
     """ Stores all the discovered sessions """
@@ -103,6 +95,7 @@ class sessionStore():
         """ insert a new session only! """
         s = session(key, originalRequestDict)
         s.originalRequestDict = originalRequestDict
+        s.webrequests = s.webrequests + 1
         self.sessionDict[key] = s
     
     def updateSession(self, key, originalRequestDict, inactivity_period):
@@ -120,10 +113,14 @@ class sessionStore():
 
         inactivity_period_delta = timedelta(seconds=inactivity_period)
 
+        # old, stale session, default it to duration of 2 seconds
         if (currentRequestTime - firstdatetime)  >= inactivity_period_delta:
             session.duration = inactivity_period_delta
+            session.webrequests = session.webrequests + 1
+        # existing session, mark the duration and increment the count
         else:
             session.duration = currentRequestTime - firstdatetime
+            session.webrequests = session.webrequests + 1
         
         logger.info(session.duration)
 
@@ -136,6 +133,7 @@ class session():
         self.lastdatetime = None
         self.duration = 0
         self.listOfWebRequests = []
+        self.webrequests = 0
         self.originalRequestDict = originalRequestDict
 
 def main():
@@ -149,6 +147,7 @@ def main():
     sess = Sessionization(args.log, args.inactivity, args.sessionization)
     sess.set_inactivity_period()
     sess.read_log()
+    sess.write_session()
 
     logger.debug("{} {} {}".format(sess.logfile, sess.inactivityfile, sess.sessionizationfile))
 
