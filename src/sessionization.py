@@ -1,3 +1,10 @@
+"""
+
+Sessionization
+take two input files (log and inactivity) and outputs a sessionization file that shows the number of web requests per IP
+
+"""
+
 import argparse
 from datetime import datetime, timedelta
 import logging
@@ -32,7 +39,7 @@ class Sessionization:
                 except:
                     logger.debug("This is not an integer!")
                     continue
-                logger.info(line)
+                #logger.info(line)
 
     def read_log(self):
         """ Read the CSV log file and append data to the sessionizer file """
@@ -43,12 +50,6 @@ class Sessionization:
             #logger.debug(header)
 
             for line in logfh.readlines():
-                # ip: identifies the IP address of the device requesting the data. While the SEC anonymizes the last three digits, it uses a consistent formula that allows you to assume that any two ip fields with the duplicate values are referring to the same IP address
-                # date: date of the request (yyyy-mm-dd)
-                # time: time of the request (hh:mm:ss)
-                # cik: SEC Central Index Key
-                # accession: SEC document accession number
-                # extention: Value that helps determine the document being requested
                 fa = line.split(',')
 
                 # creates a dictionary with the keys from the header
@@ -73,7 +74,7 @@ class Sessionization:
         count of webpage requests during the session"""
         #logger.info(self.sessionStore.sessionDict.items())
         for (k,v) in self.sessionStore.sessionDict.items():
-            outputStr = "{},{},{}".format(v.originalRequestDict['ip'], v.firstdatetime, v.lastdatetime)
+            outputStr = "{},{},{},{},{}".format(v.originalRequestDict['ip'], v.firstdatetime, v.lastdatetime, v.duration, v.webrequests)
             logger.info(outputStr)
 
 class sessionStore():
@@ -121,7 +122,7 @@ class sessionStore():
             session.webrequests = session.webrequests + 1
             session.lastdatetime = currentRequestTime
         
-        logger.info(session.duration)
+        #logger.info(session.duration)
 
 class session():
     """ Tracks the user session time access, duration, and page reqs """
