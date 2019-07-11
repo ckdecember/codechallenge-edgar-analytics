@@ -115,27 +115,17 @@ class sessionStore():
         currentRequestTime = originalRequestDict['time']
         session = self.sessionDict[key]
 
-        # compare times
-        # if it's longer than the period or equal the session ends. count duration.
-        #dateobj = datetime.datetime(str(currentRequestTime))
-        logger.info("currentreqtimef")
-        #timeobj = datetime(currentRequestTime)
-        #logger.info(timeobj)
-
         currentRequestTime = datetime.strptime(currentRequestTime, "%H:%M:%S")
         firstdatetime = datetime.strptime(session.firstdatetime, "%H:%M:%S")
 
         inactivity_period_delta = timedelta(seconds=inactivity_period)
 
-        logger.info(currentRequestTime)
-        logger.info(firstdatetime)
-
         if (currentRequestTime - firstdatetime)  >= inactivity_period_delta:
-            logger.info("in!")
-            # just add inactivity period and ignore the rest
-        #    session.duration = session.firstdatetime + inactivity_period
-        #else:
-        #    session.duration = currentRequestTime - session.firstdatetime
+            session.duration = inactivity_period_delta
+        else:
+            session.duration = currentRequestTime - firstdatetime
+        
+        logger.info(session.duration)
 
 class session():
     """ Tracks the user session time access, duration, and page reqs """
