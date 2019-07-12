@@ -66,40 +66,69 @@ class Sessionization:
                 # key maker just for brevity
                 key = (faDict['ip'], faDict['date'], faDict['time'])
 
-                # check if session exists,
-                # if yes, add another webhit
-                # if yes, check if inactivitytime has elapsed.  if so, seal the session.
-                # otherwise, keep it alive
-                # if nonsession exist, create session.
-
-                # use a sessionClass to store original dict, currenttime, lasttime, duration, webhits
-                # cacheList
-                # outputList
-
-                # get session data
-                # if first session, cache it in a dict, STORE the time too.
                 # if not, check current session time vs entire list of cached list.
                 # if elements are above inactivity, end their sessions, REMOVE from cachelist.  copy that data in 
                 # the 'to be fulfilled' list.  
                 # if end of file, go through cachelist, end their sessions.  copy the rest fo fulfil list.
                 # run the fulfil list.
 
+                # mark expired 
+                # 
+
+                self.markExpired(faDict['time'])
+
                 if not self.sessionStore.sessionExists(key):
-                    #self.seal_sessions(faDict['time'])
                     self.sessionStore.insertSession(key, faDict)
                 else:
-                    self.seal_sessions(faDict['time'])
-                    # seal old sessions
-                    # add to fulfill list (or write immediately)
-                    # update session duration, webhits if needed
-                    # 
                     self.sessionStore.updateSession(key, faDict, self.inactivityperiod)
+                
+                self.queueToOutputList()
+                
+                # queue to outputlist if marked
+                # delete from sessionlist
 
             # when we reach the end of the file, seal all existing session
+
+    def queueToOutputList(self):
+        """ look for cull tagged sessions and add to output list """
+        for k in list(self.sessionStore.sessionDict.keys()):
+            if self.sessionStore.sessionDict[k].deleteFlag:
+                self.queue_fulfill(k, self.sessionStore.sessionDict)
+                del self.sessionStore.sessionDict[k]
+
+    def markExpired(self, currenttimestamp):
+        """ 
+        Loops through cached session to mark expired sessions
+        also adds to the outputList
+        maybe just mark, and have another one add to the outputlist?
+        """
+        for (k,v) in self.sessionStore.sessionDict.items():
+            if self.isExpired(k, currenttimestamp):
+                v.deleteFlag = 1
+            
+    def isExpired(self, key, currenttimestamp):
+        """ Tells you if it has exceeded the inactivity_period """
+        firsttimestamp = self.sessionStore.sessionDict[key].firstdatetime
+        dtFirst = self.dtTimeStamper(firsttimestamp)
+        dtCurrent = self.dtTimeStamper(currenttimestamp)
+        dtInactivityDelta = timedelta(seconds=self.inactivityperiod)
+
+        if (dtCurrent - dtFirst) > dtInactivityDelta:
+            logger.info("{} is expired".format(key))
+            return True
+        else:
+            return False
+
+    def dtTimeStamper(self, timestamp):
+        dtTimeStamp = datetime.strptime(timestamp, "%H:%M:%S")
+        return dtTimeStamp
 
     def seal_sessions(self, timestamp):
         """ check for expired sessions, seal their last time stamps """
         # get current timestamp
+        # tries to seal a session.
+        # expired time, given a key, erase session from the primary cache.  add it to the outputList.
+
         # iterate dictionary, if firsttimestamp
         # convert timestamps
         dtCurrentTimeStamp = datetime.strptime(timestamp, "%H:%M:%S")
@@ -201,6 +230,7 @@ class session():
         self.listOfWebRequests = []
         self.webrequests = 0
         self.originalRequestDict = originalRequestDict
+        self.deleteFlag = False
 
 def main():
     parser = argparse.ArgumentParser(description="Edgar Analytics")
