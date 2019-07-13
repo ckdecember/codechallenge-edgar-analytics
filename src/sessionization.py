@@ -14,16 +14,20 @@ from datetime import datetime, timedelta
 import logging
 import unittest
 import os
+import sys
+
+TIMEFORMAT = "%H:%S:%M"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-ch = logging.StreamHandler()
+ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.DEBUG)
 
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 ch.setFormatter(formatter)
+
 logger.addHandler(ch)
 
 class Sessionization:
@@ -45,7 +49,7 @@ class Sessionization:
                 except:
                     logger.debug("This is not an integer!")
                     continue
-                #logger.info(line)
+                logger.debug(line)
 
     def process_log(self):
         """ Read the CSV log file and append data to the sessionizer file """
@@ -56,7 +60,7 @@ class Sessionization:
             header = logfh.readline()
             header = header.strip()
             header = header.split(',')
-            #logger.debug(header)
+            logger.debug(header)
 
             for line in logfh.readlines():
                 fa = line.split(',')
@@ -64,60 +68,101 @@ class Sessionization:
                 # creates a dictionary with the keys from the header
                 faDict = dict(zip(header, fa))
                 faDict = {k:v for (k,v) in faDict.items() if k in self.wanted_fields}
-                #logger.debug(faDict)
+                logger.debug(faDict)
 
                 # key maker just for brevity
-                key = (faDict['ip'], faDict['date'], faDict['time'])
+                key = (faDict['ip'])
+                ss = self.session_store
+                current_timestamp = faDict['time']
 
-                # if not, check current session time vs entire list of cached list.
-                # if elements are above inactivity, end their sessions, REMOVE from cachelist.  copy that data in 
-                # the 'to be fulfilled' list.  
-                # if end of file, go through cachelist, end their sessions.  copy the rest fo fulfil list.
-                # run the fulfil list.
+                # delete sessions based on global time elapsed
+                #self.clear_expired_sessions(current_timestamp)
 
-                self.mark_expired(faDict['time'])
-
-                if not self.session_store.session_exists(key):
-                    self.session_store.insert_session(key, faDict)
-                else:
-                    self.session_store.update_session(key)
+                if not ss.session_exists(key):
+                    ss.insert_session(key, faDict)
+                    continue
                 
-                self.flush_user_session(key)
+                # did we expire?  if not, keep going.
+                # if didn't expire, increment web
+
+                # ok, 5 entries are in there.  since they are unique.  our update code is wrong somehow.
+                # update code should
+                # update webrequests by 1.  
+                # update duration?
+                # update lasttime
+
+                sobj = ss.session_dict[key]
+                # conditional wrap here.  
+                # if currenttimestamp is > firsttimestamp+inactivity
+                # make new session (ugh, no wonder why you can't do this.  you made a dict)
+                # 
+                # check this expiry logic.  it is probably broken.
+                #if not self.is_expired(key, current_timestamp):
+                #    sobj.webrequests += 1
+
+                """
+                # if it exists, 
+                sobj = ss.session_dict[key]
+
+                # increment webrequest, adjust duration, change last_datetime
+                sobj.webrequests += 1
+
+                sobj.duration = int(self.get_duration(key, current_timestamp).total_seconds())
+                sobj.last_datetime = current_timestamp
                 
-                # queue to outputlist if marked
-                # delete from sessionlist
+                #self.process_expired(key, faDict['time'])
+                #self.session_store.update_session(key)
+                """
+            
+        
+        #flush the remainin
+        sd = self.session_store.session_dict
+        for key in sd.keys():
+            self.write_user_session(key)
 
-            # when we reach the end of the file, seal all existing session
+        logger.info("remaining in session store")
+        logger.info(ss.session_dict)
+                
+    def process_expired(self, key, current_timestamp):
+        """ write a user session if the key is expired """
+        s = self.session_store.session_dict
+        if self.is_expired(key, current_timestamp):
+            self.write_user_session(key)
+            #del s[key]
+    
+    def clear_expired_sessions(self, current_timestamp):
+        s = self.session_store.session_dict
 
-    def mark_expired(self, current_timestamp):
-        """ 
-        Loops through cached session to mark expired sessions
-        also adds to the outputList
-        maybe just mark, and have another one add to the outputlist?
-        """
-        for (k,v) in self.session_store.session_dict.items():
-            if self.is_expired(k, current_timestamp):
-                v.delete_flag = 1
+        for key in list(s.keys()):
+            if self.is_expired(key, current_timestamp):
+                self.write_user_session(key)
+                del s[key]
             
     def is_expired(self, key, current_timestamp):
-        """ Tells you if it has exceeded the inactivity_period """
-        first_timestamp = self.session_store.session_dict[key].first_datetime
-        dt_first = self.dt_timestamper(first_timestamp)
-        dt_current = self.dt_timestamper(current_timestamp)
+        """ Tells you if a session has exceeded the inactivity_period """
+        dt_duration = self.get_duration(key, current_timestamp)
         dt_inactivity_delta = timedelta(seconds=self.inactivity_period)
 
-        if (dt_current - dt_first) > dt_inactivity_delta:
-            logger.info("{} is expired".format(key))
+        if dt_duration > dt_inactivity_delta:
+            logger.debug("duration: {} key: {} timedelta: {} is expired".format(dt_duration, key, dt_inactivity_delta))
             return True
         else:
             return False
 
-    def dt_timestamper(self, timestamp):
-        dtTimeStamp = datetime.strptime(timestamp, "%H:%M:%S")
-        return dtTimeStamp
+    def get_duration(self, key, timestamp):
+        """ get timedelta duration between first timestamp and passed timestamp """
+        s = self.session_store.session_dict[key]
 
-    def flush_user_session(self, key):
-        """ queue a session to be sent to output """
+        dt_current = datetime.strptime(timestamp, TIMEFORMAT)
+        dt_first_time = datetime.strptime(s.first_datetime, TIMEFORMAT)
+
+        dt_duration = dt_current - dt_first_time
+        logger.debug("key: {} timestamp: {} duration: {}".format(key, timestamp, dt_duration))
+        logger.debug("get_duration: dur:{} curr:{} first:{}".format(dt_duration, dt_current, dt_first_time))
+        return dt_duration
+
+    def write_user_session(self, key):
+        """ writes a session to the sessionalization file """
         s = self.session_store.session_dict[key]
         outputStr = "{},{} {},{} {},{},{}\n".format(s.originalRequestDict['ip'], \
             s.originalRequestDict['date'], s.first_datetime, \
@@ -131,6 +176,12 @@ class Sessionization:
         except:
             logger.info("Rename somehow failed...")
         return
+    
+    def delete_old_sessions(self):
+        s = self.session_store.session_dict
+        for key in list(s.keys()):
+            if s[key].delete_flag:
+                del s[key]
 
 class session_store():
     """ Stores all the discovered sessions """
@@ -139,6 +190,7 @@ class session_store():
    
     def session_exists(self, key):
         """ check for existing session via key """
+        # maybe make it exist by IP
         if key in self.session_dict.keys():
             return True
         else:
@@ -146,15 +198,25 @@ class session_store():
     
     def insert_session(self, key, originalRequestDict):
         """ insert a new session only! """
+        # make this beefier
+        # session_exists_by_IP
+        # if IP matches, consider
+        # - incrementing web
+        # check if timestamp is ahead or not
+        # if timestamp is old, create NEW session
+        # 
         s = session(key, originalRequestDict)
         s.originalRequestDict = originalRequestDict
         s.webrequests = s.webrequests + 1
         self.session_dict[key] = s
     
     def update_session(self, key):
-        """ increments webcount """
-        self.session_dict[key].webrequests += 1
-        #logger.info(session.duration)
+        """ increments webcount, updates duration """
+        s = self.session_dict[key]
+        s.webrequests += 1
+        # duration should be current time - first time
+        # ok maybe somehow undo the mark?
+        logger.debug("{} {}".format(key, s.duration))
 
 class session():
     """ Tracks the user session time access, duration, and page reqs """
@@ -163,10 +225,13 @@ class session():
         self.key = key
         self.first_datetime = originalRequestDict['time']
         self.last_datetime = originalRequestDict['time']
-        self.duration = 0
+        self.duration = 1
         self.webrequests = 0
         self.originalRequestDict = originalRequestDict
         self.delete_flag = False
+
+        self.dt_first_time = datetime.strptime(self.first_datetime, TIMEFORMAT)
+        self.dt_last_time = datetime.strptime(self.first_datetime, TIMEFORMAT)
 
 def main():
     parser = argparse.ArgumentParser(description="Edgar Analytics")
