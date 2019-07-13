@@ -6,10 +6,14 @@ Masha is AWESOME!  I was not paid to write that.
 
 """
 
+__version__ = '0.1'
+__author__ = 'Carroll Kong'
+
 import argparse
 from datetime import datetime, timedelta
 import logging
 import unittest
+import os
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -23,29 +27,28 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 class Sessionization:
-    def __init__(self, logfile, inactivityfile, sessionizationfile):
+    def __init__(self, logfile, inactivity_file, sessionization_file):
         self.logfile = logfile
-        self.inactivityfile = inactivityfile
-        self.sessionizationfile = sessionizationfile
-        self.inactivityperiod = None
-        self.wantedFields = ['ip', 'date', 'time', 'cik', 'accession', 'extention']
-        self.sessionStore = sessionStore()
-        self.outputList = []
+        self.inactivity_file = inactivity_file
+        self.sessionization_file = sessionization_file
+        self.inactivity_period = None
+        self.wanted_fields = ['ip', 'date', 'time', 'cik', 'accession', 'extention']
+        self.session_store = session_store()
+        self.output_list = []
     
     def set_inactivity_period(self):
         """ get the inactivity period """
-        with open(self.inactivityfile, "r") as inactivefh:
+        with open(self.inactivity_file, "r") as inactivefh:
             for line in inactivefh:
                 try:
-                    self.inactivityperiod = int(line)
+                    self.inactivity_period = int(line)
                 except:
                     logger.debug("This is not an integer!")
                     continue
                 #logger.info(line)
 
-    def read_log(self):
+    def process_log(self):
         """ Read the CSV log file and append data to the sessionizer file """
-        """ chrono order, so, check if it's past the time, and record/discard """
 
         self.set_inactivity_period()
 
@@ -60,7 +63,7 @@ class Sessionization:
 
                 # creates a dictionary with the keys from the header
                 faDict = dict(zip(header, fa))
-                faDict = {k:v for (k,v) in faDict.items() if k in self.wantedFields}
+                faDict = {k:v for (k,v) in faDict.items() if k in self.wanted_fields}
                 #logger.debug(faDict)
 
                 # key maker just for brevity
@@ -72,151 +75,85 @@ class Sessionization:
                 # if end of file, go through cachelist, end their sessions.  copy the rest fo fulfil list.
                 # run the fulfil list.
 
-                # mark expired 
-                # 
+                self.mark_expired(faDict['time'])
 
-                self.markExpired(faDict['time'])
-
-                if not self.sessionStore.sessionExists(key):
-                    self.sessionStore.insertSession(key, faDict)
+                if not self.session_store.session_exists(key):
+                    self.session_store.insert_session(key, faDict)
                 else:
-                    self.sessionStore.updateSession(key, faDict, self.inactivityperiod)
+                    self.session_store.update_session(key)
                 
-                self.queueToOutputList()
+                self.flush_user_session(key)
                 
                 # queue to outputlist if marked
                 # delete from sessionlist
 
             # when we reach the end of the file, seal all existing session
 
-    def queueToOutputList(self):
-        """ look for cull tagged sessions and add to output list """
-        for k in list(self.sessionStore.sessionDict.keys()):
-            if self.sessionStore.sessionDict[k].deleteFlag:
-                self.queue_fulfill(k, self.sessionStore.sessionDict)
-                del self.sessionStore.sessionDict[k]
-
-    def markExpired(self, currenttimestamp):
+    def mark_expired(self, current_timestamp):
         """ 
         Loops through cached session to mark expired sessions
         also adds to the outputList
         maybe just mark, and have another one add to the outputlist?
         """
-        for (k,v) in self.sessionStore.sessionDict.items():
-            if self.isExpired(k, currenttimestamp):
-                v.deleteFlag = 1
+        for (k,v) in self.session_store.session_dict.items():
+            if self.is_expired(k, current_timestamp):
+                v.delete_flag = 1
             
-    def isExpired(self, key, currenttimestamp):
+    def is_expired(self, key, current_timestamp):
         """ Tells you if it has exceeded the inactivity_period """
-        firsttimestamp = self.sessionStore.sessionDict[key].firstdatetime
-        dtFirst = self.dtTimeStamper(firsttimestamp)
-        dtCurrent = self.dtTimeStamper(currenttimestamp)
-        dtInactivityDelta = timedelta(seconds=self.inactivityperiod)
+        first_timestamp = self.session_store.session_dict[key].first_datetime
+        dt_first = self.dt_timestamper(first_timestamp)
+        dt_current = self.dt_timestamper(current_timestamp)
+        dt_inactivity_delta = timedelta(seconds=self.inactivity_period)
 
-        if (dtCurrent - dtFirst) > dtInactivityDelta:
+        if (dt_current - dt_first) > dt_inactivity_delta:
             logger.info("{} is expired".format(key))
             return True
         else:
             return False
 
-    def dtTimeStamper(self, timestamp):
+    def dt_timestamper(self, timestamp):
         dtTimeStamp = datetime.strptime(timestamp, "%H:%M:%S")
         return dtTimeStamp
 
-    def seal_sessions(self, timestamp):
-        """ check for expired sessions, seal their last time stamps """
-        # get current timestamp
-        # tries to seal a session.
-        # expired time, given a key, erase session from the primary cache.  add it to the outputList.
-
-        # iterate dictionary, if firsttimestamp
-        # convert timestamps
-        dtCurrentTimeStamp = datetime.strptime(timestamp, "%H:%M:%S")
-        dtInactiveDelta = timedelta(seconds=self.inactivityperiod)
-        for (k,v) in self.sessionStore.sessionDict.items():
-            dtFirstTimeStamp = datetime.strptime(v.firstdatetime, "%H:%M:%S")
-            if (dtCurrentTimeStamp - dtFirstTimeStamp) > dtInactiveDelta:
-                v.lastdatetime = v.firstdatetime
-                #del self.sessionStore.sessionDict[k]
-                self.queue_fulfill(k, v.originalRequestDict)
-                v.webrequests = v.webrequests + 1
-            #else:
-                #v.webrequests = v.webrequests + 1
-                #self.queue_fulfill(k, v.originalRequestDict)
-        
-        for i in self.outputList:
-            logger.info(i)
-
-    def queue_fulfill(self, key, session):
+    def flush_user_session(self, key):
         """ queue a session to be sent to output """
-        self.outputList.append((key, session))
-        #logger.info("are we here")
-        #logger.info(self.outputList)
+        s = self.session_store.session_dict[key]
+        outputStr = "{},{} {},{} {},{},{}\n".format(s.originalRequestDict['ip'], \
+            s.originalRequestDict['date'], s.first_datetime, \
+            s.originalRequestDict['date'], s.last_datetime, s.duration, s.webrequests)
+        with open(self.sessionization_file, "a") as sfh:
+            sfh.write(outputStr)
+    
+    def clean_stale_output(self):
+        try:
+            os.rename(self.sessionization_file, self.sessionization_file + ".bak")
+        except:
+            logger.info("Rename somehow failed...")
+        return
 
-    def write_session(self):
-        # tuple of cik, accession and extention => unique page request
-        """ IP address of the user exactly as found in log.csv
-        date and time of the first webpage request in the session (yyyy-mm-dd hh:mm:ss)
-        date and time of the last webpage request in the session (yyyy-mm-dd hh:mm:ss)
-        duration of the session in seconds
-        count of webpage requests during the session"""
-        #logger.info(self.sessionStore.sessionDict.items())
-
-        for (k,v) in self.sessionStore.sessionDict.items():
-            outputStr = "{},{} {},{} {},{},{}".format(v.originalRequestDict['ip'], \
-                v.originalRequestDict['date'], v.firstdatetime, \
-                v.originalRequestDict['date'], v.lastdatetime, v.duration, v.webrequests)
-            #logger.info(outputStr)
-
-class sessionStore():
+class session_store():
     """ Stores all the discovered sessions """
     def __init__(self):
-        self.sessionDict = {}
+        self.session_dict = {}
    
-    def sessionExists(self, key):
+    def session_exists(self, key):
         """ check for existing session via key """
-        if key in self.sessionDict.keys():
+        if key in self.session_dict.keys():
             return True
         else:
             return False
     
-    def insertSession(self, key, originalRequestDict):
+    def insert_session(self, key, originalRequestDict):
         """ insert a new session only! """
         s = session(key, originalRequestDict)
         s.originalRequestDict = originalRequestDict
         s.webrequests = s.webrequests + 1
-        self.sessionDict[key] = s
+        self.session_dict[key] = s
     
-    def updateSession(self, key, originalRequestDict, inactivity_period):
-        """ update existing session """
-        # if yes, compare timestamp in sessionDict compared to one in the current line.
-        # if time is longer than the inactivity, seal the session with accurate time or +inactivity_period max.
-        # store list of web requests inside 'session' too which is (cik, accession, extention)
-        # if webrequest is not in list of webrequests, add to list
-        # if it is, don't add to list
-        currentRequestTime = originalRequestDict['time']
-        session = self.sessionDict[key]
-
-        #logger.info(currentRequestTime)
-
-        dtCurrentRequestTime = datetime.strptime(currentRequestTime, "%H:%M:%S")
-        dtFirstDateTime = datetime.strptime(session.firstdatetime, "%H:%M:%S")
-
-        # logger.info(dtCurrentRequestTime)
-
-        dtInactivityPeriodDelta = timedelta(seconds=inactivity_period)
-
-        # old, stale session, default it to duration of 2 seconds
-        if (dtCurrentRequestTime - dtFirstDateTime)  > dtInactivityPeriodDelta:
-            session.duration = dtInactivityPeriodDelta
-            session.webrequests = session.webrequests + 1
-            session.lastdatetime = currentRequestTime
-        # existing session, mark the duration and increment the count
-        else:
-            session.duration = dtCurrentRequestTime - dtFirstDateTime
-            session.webrequests = session.webrequests + 1
-            session.lastdatetime = currentRequestTime
-        
+    def update_session(self, key):
+        """ increments webcount """
+        self.session_dict[key].webrequests += 1
         #logger.info(session.duration)
 
 class session():
@@ -224,13 +161,12 @@ class session():
 
     def __init__(self, key, originalRequestDict):
         self.key = key
-        self.firstdatetime = originalRequestDict['time']
-        self.lastdatetime = None
+        self.first_datetime = originalRequestDict['time']
+        self.last_datetime = originalRequestDict['time']
         self.duration = 0
-        self.listOfWebRequests = []
         self.webrequests = 0
         self.originalRequestDict = originalRequestDict
-        self.deleteFlag = False
+        self.delete_flag = False
 
 def main():
     parser = argparse.ArgumentParser(description="Edgar Analytics")
@@ -241,10 +177,10 @@ def main():
     args = parser.parse_args()
 
     sess = Sessionization(args.log, args.inactivity, args.sessionization)
-    sess.read_log()
-    sess.write_session()
+    sess.clean_stale_output()
+    sess.process_log()
 
-    logger.debug("{} {} {}".format(sess.logfile, sess.inactivityfile, sess.sessionizationfile))
+    logger.debug("{} {} {}".format(sess.logfile, sess.inactivity_file, sess.sessionization_file))
 
 if __name__ == "__main__":
     main()
