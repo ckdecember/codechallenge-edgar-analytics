@@ -131,9 +131,9 @@ class Sessionization:
 
     def write_user_session(self, cs):
         """ writes a session to the sessionalization file """
-        outputStr = "{},{} {},{},{},{}\n".format(cs.originalRequestDict['ip'], \
-            cs.originalRequestDict['date'], cs.first_datetime, \
-            cs.last_datetime, int(cs.dt_duration.total_seconds()), cs.webrequests)
+        outputStr = "{},{},{},{},{}\n".format(cs.originalRequestDict['ip'], \
+            cs.first_datetime, cs.last_datetime, \
+            int(cs.dt_duration.total_seconds()), cs.webrequests)
         with open(self.sessionization_file, "a") as sfh:
             sfh.write(outputStr)
         return
@@ -161,8 +161,9 @@ class Sessionization:
         for s in sl:
             # use get_inclusive
             dt_inclusive_duration = get_inclusive_duration(dt_current_timestamp, s.dt_first_time)
+            logger.info("inclusive_duration is {} ".format(dt_inclusive_duration))
             #if dt_inclusive_duration > self.dt_inactivity_period:
-            if dt_inclusive_duration >= self.dt_inactivity_period:
+            if dt_inclusive_duration > self.dt_inactivity_period:
                 logger.info("flushing old key {} curtime {} firsttime {} last time {} \
                     duration {}".format(s.key, dt_current_timestamp, \
                         s.dt_first_time, s.dt_last_time, \
@@ -208,18 +209,18 @@ class session():
     def __init__(self, key, originalRequestDict, current_timestamp):
         """ pre initializes """
         self.key = key
-        self.first_datetime = originalRequestDict['time']
+        self.first_datetime = current_timestamp
         self.last_datetime = current_timestamp
         self.duration = 1
         self.webrequests = 1
         self.originalRequestDict = originalRequestDict
         self.delete_flag = False
 
-        fdtstr = "{} {}".format(originalRequestDict['date'], self.first_datetime)
-        ldtstr = "{}".format(self.last_datetime)
+        #fdtstr = "{} {}".format(originalRequestDict['date'], self.first_datetime)
+        #ldtstr = "{}".format(self.last_datetime)
 
-        self.dt_first_time = datetime.strptime(fdtstr, TIMEFORMAT)
-        self.dt_last_time = datetime.strptime(ldtstr, TIMEFORMAT)
+        self.dt_first_time = datetime.strptime(self.first_datetime, TIMEFORMAT)
+        self.dt_last_time = datetime.strptime(self.last_datetime, TIMEFORMAT)
 
         self.dt_duration = timedelta(seconds=self.duration)
     
