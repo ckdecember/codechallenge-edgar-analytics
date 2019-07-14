@@ -36,6 +36,7 @@ class Sessionization:
         self.inactivity_file = inactivity_file
         self.sessionization_file = sessionization_file
         self.inactivity_period = None
+        self.dt_inactivity_period = None
         self.wanted_fields = ['ip', 'date', 'time', 'cik', 'accession', 'extention']
         self.session_store = session_store()
         self.output_list = []
@@ -45,7 +46,9 @@ class Sessionization:
         with open(self.inactivity_file, "r") as inactivefh:
             for line in inactivefh:
                 try:
-                    self.inactivity_period = int(line)
+                    line = int(line)
+                    self.inactivity_period = line
+                    self.dt_inactivity_period = timedelta(seconds=line)
                 except:
                     logger.debug("This is not an integer!")
                     continue
@@ -69,51 +72,47 @@ class Sessionization:
                 # creates a dictionary with the keys from the header
                 lineDict = dict(zip(header, fa))
                 lineDict = {k:v for (k,v) in lineDict.items() if k in self.wanted_fields}
-                logger.debug(lineDict)
+                #logger.debug(lineDict)
 
                 # short hand var names
                 ss = self.session_store
                 current_timestamp = "{} {}".format(lineDict['date'], lineDict['time'])
+                dt_current_timestamp = datetime.strptime(current_timestamp, TIMEFORMAT)
                 #key = (lineDict['ip'], current_timestamp)
                 key = lineDict['ip']
 
                 logger.info("key is {}".format(key))
 
-                #ss.insert_session(key, lineDict, current_timestamp, self.inactivity_period)
                 # if session does not exist, add it, and increment webhit.
                 
-                # ok sessions can be added now.
-                if not ss.session_exists(key):
+                current_session = ss.find_session(key)
+
+                # new sessions
+                if not current_session:
                     ss.add_session(key, lineDict)
-                else:
-                    logger.info("outlier key is {}".format(key))
-                
-                if self.is_valid_session_by_time(key, lineDict, current_timestamp):
                     continue
 
-                # if no match, create a NEW session
+                # old sessions with valid timestamps
+                if self.is_valid_session_by_time(dt_current_timestamp, current_session.dt_first_time):
+                    ss.update_session(current_session, dt_current_timestamp)
+                else:
+                    # process the current session
+                    # send it, and delete it from the list.
+                    self.write_user_session(current_session)
+                    ss.session_list.remove(current_session)
+                    #ss.add_session(key, lineDict)
+                
                 # each line, has a session
+                # if no match, create a NEW session
                 # check that sessions's IP and time
-                # if IP matches AND time is within scope, increment web AND update last accessed time aND duration
-                # if IP matches and time is NOT within scope, create a NEW session, use preset values in constructor
-
-
-                
-
-                
-
-
-            for key in ss.session_dict.keys():
-                self.write_user_session(key)
-
+                # if IP matches AND time is within scope, increment web AND update last accessed time 
+                # aND duration
+                # if IP matches and time is NOT within scope, create a NEW session,
+                #  use preset values in constructor
         return
                 
-    def process_expired(self, key, current_timestamp):
-        """ write a user session if the key is expired """
-        s = self.session_store.session_dict
-        if self.is_expired(key, current_timestamp):
-            self.write_user_session(key)
-            #del s[key]
+    def process_expired(self, current_session):
+        """ expired session.  close current_session. """
         return
     
     def clear_expired_sessions(self, current_timestamp):
@@ -148,12 +147,16 @@ class Sessionization:
         logger.debug("get_duration: dur:{} curr:{} first:{}".format(dt_duration, dt_current, dt_first_time))
         return dt_duration
 
-    def write_user_session(self, key):
+    def write_user_session(self, cs):
         """ writes a session to the sessionalization file """
-        s = self.session_store.session_dict[key]
-        outputStr = "{},{} {},{} {},{},{}\n".format(s.originalRequestDict['ip'], \
+        #s = self.session_store.session_dict[key]
+        
+        """outputStr = "{},{} {},{} {},{},{}\n".format(s.originalRequestDict['ip'], \
             s.originalRequestDict['date'], s.first_datetime, \
-            s.originalRequestDict['date'], s.last_datetime, s.duration, s.webrequests)
+            s.originalRequestDict['date'], s.last_datetime, s.duration, s.webrequests)"""
+        outputStr = "{},{} {},{} {},{},{}\n".format(cs.originalRequestDict['ip'], \
+            cs.originalRequestDict['date'], cs.first_datetime, \
+            cs.originalRequestDict['date'], cs.last_datetime, cs.duration, cs.webrequests)
         with open(self.sessionization_file, "a") as sfh:
             sfh.write(outputStr)
         return
@@ -172,31 +175,45 @@ class Sessionization:
                 del s[key]
         return
     
-    def is_valid_session_by_time(self, key, lineDict, current_timestamp):
-
-        dt_current_timestamp = datetime.strptime(current_timestamp, TIMEFORMAT)
-
-        #logger.info("working now datetime {}".format(dt_current_timestamp))
+    def is_valid_session_by_time(self, dt_current, dt_first_time):
+        if (dt_current - dt_first_time) > self.dt_inactivity_period:
+            return False
+        else:
+            return True
 
 class session_store():
     """ Stores all the discovered sessions """
     def __init__(self):
-        self.session_dict = {}
+        #self.session_dict = {}
+        self.session_list = []
    
     def session_exists(self, key):
         """ check for existing session via key """
-        if key in self.session_dict.keys():
+        """if key in self.session_dict.keys():
             return True
         else:
             return False
+        """
     
     def add_session(self, key, originalRequestDict):
         new_session = session(key, originalRequestDict)
-        self.session_dict[key] = new_session
+        #self.session_dict[key] = new_session
+        self.session_list.append(new_session)
         return
     
-    def update_session(self, key, originalRequestDict):
-        pass
+    def find_session(self, key):
+        for i in self.session_list:
+            if i.key == key:
+                return i
+    
+    def update_session(self, current_session, dt_current):
+        cs = current_session
+        cs.webrequests += 1
+        cs.dt_duration = dt_current - cs.dt_last_time
+        cs.dt_last_time = dt_current
+        logger.info("{} {} {} ".format(cs.webrequests, cs.dt_duration, cs.dt_last_time))
+        
+
 
     def insert_session(self, key, originalRequestDict, current_timestamp, inactivity_period):
         """ insert session, handles if they pre-exist or not! """
