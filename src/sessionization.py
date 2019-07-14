@@ -83,36 +83,31 @@ class Sessionization:
 
                 logger.info("key is {}".format(key))
 
-                # if session does not exist, add it, and increment webhit.
-                
                 current_session = ss.find_session(key)
-
-                # new sessions
+                # new session
                 if not current_session:
                     ss.add_session(key, lineDict)
                     continue
 
-                # old sessions with valid timestamps
+                # found a session, if valid by timestamp, update it
                 if self.is_valid_session_by_time(dt_current_timestamp, current_session.dt_first_time):
                     ss.update_session(current_session, dt_current_timestamp)
                 else:
-                    # process the current session
-                    # send it, and delete it from the list.
-                    self.write_user_session(current_session)
-                    ss.session_list.remove(current_session)
-                    #ss.add_session(key, lineDict)
-                
-                # each line, has a session
-                # if no match, create a NEW session
-                # check that sessions's IP and time
-                # if IP matches AND time is within scope, increment web AND update last accessed time 
-                # aND duration
-                # if IP matches and time is NOT within scope, create a NEW session,
-                #  use preset values in constructor
+                    # ok, session is expired.  but check ALL old sessions, not just ones matching your timestamp
+                    self.flush_expired_sessions(dt_current_timestamp)
+                    # account for new session
+                    ss.add_session(key, lineDict)
+
+        # flush remaining sessions.  do we reverse this or do it in order?
+        # honestly, should be flushing them AS we process ANY new session.
+        sl = self.session_store.session_list
+        for s in sl:
+            self.write_user_session(s)
+            sl.remove(s)
         return
                 
     def process_expired(self, current_session):
-        """ expired session.  close current_session. """
+        """ check for old sessions, expire them, and push them """
         return
     
     def clear_expired_sessions(self, current_timestamp):
@@ -149,11 +144,6 @@ class Sessionization:
 
     def write_user_session(self, cs):
         """ writes a session to the sessionalization file """
-        #s = self.session_store.session_dict[key]
-        
-        """outputStr = "{},{} {},{} {},{},{}\n".format(s.originalRequestDict['ip'], \
-            s.originalRequestDict['date'], s.first_datetime, \
-            s.originalRequestDict['date'], s.last_datetime, s.duration, s.webrequests)"""
         outputStr = "{},{} {},{} {},{},{}\n".format(cs.originalRequestDict['ip'], \
             cs.originalRequestDict['date'], cs.first_datetime, \
             cs.originalRequestDict['date'], cs.last_datetime, cs.duration, cs.webrequests)
@@ -180,6 +170,14 @@ class Sessionization:
             return False
         else:
             return True
+    
+    def flush_expired_sessions(self, dt_current_timestamp):
+        """ iterates current session list for expired sessions """
+        sl = self.session_store.session_list
+        for s in sl:
+            if (dt_current_timestamp - s.dt_last_time) > self.dt_inactivity_period:
+                self.write_user_session(s)
+                sl.remove(s)
 
 class session_store():
     """ Stores all the discovered sessions """
