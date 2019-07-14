@@ -83,64 +83,47 @@ class Sessionization:
 
                 logger.info("key is {}".format(key))
 
-                current_session = ss.find_session(key)
-                # new session
-                if not current_session:
+                # first key ever, continue, nothing to check
+                if not ss.session_list:
+                    logger.info("adding First key {} {}".format(key, lineDict['time']))
                     ss.add_session(key, lineDict)
                     continue
 
+                self.flush_expired_sessions(dt_current_timestamp)
+
+                """
+                current_session = ss.find_session(key)
+                if not current_session:
+                    logger.info("adding new key {} {}".format(key, lineDict['time']))
+                    ss.add_session(key, lineDict)
+                else:
+                    ss.update_session(current_session, dt_current_timestamp)
+                """
+
+                # look for session, if not found
+                current_session = ss.find_session(key)
+                # new session
+                if not current_session:
+                    logger.info("adding new key {} {}".format(key, lineDict['time']))
+                    ss.add_session(key, lineDict)
+                    current_session = ss.find_session(key)
+                    
                 # found a session, if valid by timestamp, update it
                 if self.is_valid_session_by_time(dt_current_timestamp, current_session.dt_first_time):
+                    logger.info("session is valid by time {} {} {}".format(key, dt_current_timestamp, current_session.dt_first_time))
                     ss.update_session(current_session, dt_current_timestamp)
                 else:
+                    logger.info("session is NOT valid by time {} {} {}".format(key, dt_current_timestamp, current_session.dt_first_time))
                     # ok, session is expired.  but check ALL old sessions, not just ones matching your timestamp
-                    self.flush_expired_sessions(dt_current_timestamp)
-                    # account for new session
+                    # account for new session with old IP address
+                    logger.info("adding new key as final resort {} {}".format(key, lineDict['time']))
                     ss.add_session(key, lineDict)
-
-        # flush remaining sessions.  do we reverse this or do it in order?
-        # honestly, should be flushing them AS we process ANY new session.
+                
         sl = self.session_store.session_list
         for s in sl:
+            logger.info("dumping {} from list {}".format(s.key, sl))
             self.write_user_session(s)
-            sl.remove(s)
         return
-                
-    def process_expired(self, current_session):
-        """ check for old sessions, expire them, and push them """
-        return
-    
-    def clear_expired_sessions(self, current_timestamp):
-        s = self.session_store.session_dict
-
-        for key in list(s.keys()):
-            if self.is_expired(key, current_timestamp):
-                self.write_user_session(key)
-                del s[key]
-        return
-            
-    def is_expired(self, key, current_timestamp):
-        """ Tells you if a session has exceeded the inactivity_period """
-        dt_duration = self.get_duration(key, current_timestamp)
-        dt_inactivity_delta = timedelta(seconds=self.inactivity_period)
-
-        if dt_duration > dt_inactivity_delta:
-            logger.debug("duration: {} key: {} timedelta: {} is expired".format(dt_duration, key, dt_inactivity_delta))
-            return True
-        else:
-            return False
-
-    def get_duration(self, key, timestamp):
-        """ get timedelta duration between first timestamp and passed timestamp """
-        s = self.session_store.session_dict[key]
-
-        dt_current = datetime.strptime(timestamp, TIMEFORMAT)
-        dt_first_time = datetime.strptime(s.first_datetime, TIMEFORMAT)
-
-        dt_duration = dt_current - dt_first_time
-        logger.debug("key: {} timestamp: {} duration: {}".format(key, timestamp, dt_duration))
-        logger.debug("get_duration: dur:{} curr:{} first:{}".format(dt_duration, dt_current, dt_first_time))
-        return dt_duration
 
     def write_user_session(self, cs):
         """ writes a session to the sessionalization file """
@@ -158,13 +141,6 @@ class Sessionization:
             logger.info("Rename somehow failed...")
         return
     
-    def delete_old_sessions(self):
-        s = self.session_store.session_dict
-        for key in list(s.keys()):
-            if s[key].delete_flag:
-                del s[key]
-        return
-    
     def is_valid_session_by_time(self, dt_current, dt_first_time):
         if (dt_current - dt_first_time) > self.dt_inactivity_period:
             return False
@@ -174,10 +150,14 @@ class Sessionization:
     def flush_expired_sessions(self, dt_current_timestamp):
         """ iterates current session list for expired sessions """
         sl = self.session_store.session_list
+        flush_key_list = []
         for s in sl:
             if (dt_current_timestamp - s.dt_last_time) > self.dt_inactivity_period:
+                logger.info("flushing key {} {}".format(s.key, s.dt_last_time))
                 self.write_user_session(s)
-                sl.remove(s)
+                flush_key_list.append(s.key)
+                #sl.remove(s)
+        self.session_store.session_list = [s for s in sl if s.key not in flush_key_list]
 
 class session_store():
     """ Stores all the discovered sessions """
@@ -185,14 +165,6 @@ class session_store():
         #self.session_dict = {}
         self.session_list = []
    
-    def session_exists(self, key):
-        """ check for existing session via key """
-        """if key in self.session_dict.keys():
-            return True
-        else:
-            return False
-        """
-    
     def add_session(self, key, originalRequestDict):
         new_session = session(key, originalRequestDict)
         #self.session_dict[key] = new_session
@@ -200,6 +172,7 @@ class session_store():
         return
     
     def find_session(self, key):
+        logger.info("key and list {} {}".format(key, self.session_list))
         for i in self.session_list:
             if i.key == key:
                 return i
@@ -209,83 +182,9 @@ class session_store():
         cs.webrequests += 1
         cs.dt_duration = dt_current - cs.dt_last_time
         cs.dt_last_time = dt_current
-        logger.info("{} {} {} ".format(cs.webrequests, cs.dt_duration, cs.dt_last_time))
+        logger.info("updated: key:{} first access {} last access {} duration {} webreq {} "\
+            .format(cs.key, cs.dt_first_time, cs.dt_last_time,  cs.dt_duration, cs.webrequests,))
         
-
-
-    def insert_session(self, key, originalRequestDict, current_timestamp, inactivity_period):
-        """ insert session, handles if they pre-exist or not! """
-
-        # ok so jfd matches, and properly increments.  the lookback code is wrong
-
-        if self.session_exists(key):
-            # this should match perfectly, so add to webcounter.
-            logger.info("key existed {}".format(key))
-            s = self.session_dict[key]
-            s.webrequests += 1
-        else:
-            logger.info("key should be tuple {}".format(key))
-            valid_timestamps = self.get_previous_valid_sessions(current_timestamp, inactivity_period)
-
-            # it always does a lookback.  it's  question of if it's valid or not in exsting keys
-            if valid_timestamps:
-                logger.info("key is doing lookback {} for {} stamps".format(key, len(valid_timestamps)))
-
-                self.update_back_sessions(key, valid_timestamps)
-            else:
-                logger.info("key is not doing lookback {}".format(key))
-                new_session = session(key, originalRequestDict)
-                s.webrequests += 1
-                self.session_dict[key] = new_session
-        
-        for (k,v) in self.session_dict.items():
-            logger.info((k,v))
-        return
-
-    def get_previous_valid_sessions(self, current_timestamp, inactivity_period) -> list:
-        """ look back in the sessions up to the inactivity period for matching sessions """
-
-        dt_current_timestamp = datetime.strptime(current_timestamp, TIMEFORMAT)
-        dt_inactivity_period_timedelta = timedelta(seconds=inactivity_period)
-
-        # GOOD SO FAR
-
-        dt_oldest_valid_timestamp = dt_current_timestamp - dt_inactivity_period_timedelta
-
-        dt_valid_timestamps = dt_oldest_valid_timestamp
-
-        delta_step_increment = timedelta(seconds=1)
-        valid_timestamps = []
-
-        for i in range(inactivity_period):
-
-            dt_duration = dt_current_timestamp - dt_valid_timestamps 
-            dt_valid_timestamps += delta_step_increment
-            logger.info("valid_timestamp: {} dt_duration: {} inactivityperiod: {}".format(dt_valid_timestamps, dt_duration, inactivity_period))
-            # convert dt_duration into human readable
-            
-            valid_timestamps.append((dt_valid_timestamps, dt_duration))
-
-        #logger.info("validtimestamps")
-        #logger.info(valid_timestamps)
-        return valid_timestamps
-
-    def update_back_sessions(self, ip_key, timestamps):
-        """ uses older timestamps to update """
-        ip = ip_key[0]
-        s = self.session_dict
-
-        # check if the keys exist or not
-        for (timestamp, duration) in timestamps:
-            new_timestamp = timestamp.strftime(TIMEFORMAT)
-            back_skey = (ip, new_timestamp)
-            logger.info("backkey is {}".format(back_skey))
-            if back_skey in s:
-                s[b_skey].webrequests += 1
-                s[b_skey].duration = duration
-                s[b_skey].last_datetime = timestamp
-        return
-    
 class session():
     """ Tracks the user session time access, duration, and page reqs """
 
@@ -302,6 +201,9 @@ class session():
         ldtstr = "{} {}".format(originalRequestDict['date'], originalRequestDict['time'])
         self.dt_first_time = datetime.strptime(fdtstr, TIMEFORMAT)
         self.dt_last_time = datetime.strptime(ldtstr, TIMEFORMAT)
+    
+    def __repr__(self):
+        return self.key
 
 def main():
     parser = argparse.ArgumentParser(description="Edgar Analytics")
