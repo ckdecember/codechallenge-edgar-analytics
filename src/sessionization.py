@@ -100,6 +100,8 @@ class Sessionization:
                 else:
                     ss.update_session(current_session, dt_current_timestamp)
 
+                # maybe need somethign to update ALL sessions, because jkr when in early?
+
                 self.flush_expired_sessions(dt_current_timestamp)
                 """
                 # look for session, if not found
@@ -132,7 +134,7 @@ class Sessionization:
     def write_user_session(self, cs):
         """ writes a session to the sessionalization file """
         outputStr = "{},{},{},{},{}\n".format(cs.originalRequestDict['ip'], \
-            cs.first_datetime, cs.last_datetime, \
+            cs.first_datetime, cs.dt_last_time, \
             int(cs.dt_duration.total_seconds()), cs.webrequests)
         with open(self.sessionization_file, "a") as sfh:
             sfh.write(outputStr)
@@ -202,9 +204,13 @@ class session_store():
     def update_session(self, current_session, dt_current):
         cs = current_session
         cs.webrequests += 1
-        cs.dt_duration = get_inclusive_duration(dt_current, cs.dt_last_time)
-        #if (cs.dt_duration.total_seconds() == 0):
-        #    cs.dt_duration = timedelta(seconds=1)
+
+        #dt_inclusive_duration = get_inclusive_duration(dt_current, cs.dt_last_time)
+        dt_duration = get_inclusive_duration(dt_current, cs.dt_last_time) + timedelta(seconds=1)
+        cs.dt_duration = dt_duration
+
+        if (cs.dt_duration.total_seconds() == 0):
+            cs.dt_duration = timedelta(seconds=1)
         cs.dt_last_time = dt_current
         logger.info("updated: key:{} first access {} last access {} duration {} webreq {} "\
             .format(cs.key, cs.dt_first_time, cs.dt_last_time, int(cs.dt_duration.total_seconds()), cs.webrequests,))
@@ -231,8 +237,8 @@ class session():
         self.dt_duration = timedelta(seconds=self.duration)
     
     def __repr__(self):
-        return "{} : {} : {} : {} ".format(self.key, self.first_datetime, \
-            self.last_datetime, self.webrequests)
+        return "{} : {} : {} : {} ".format(self.key, self.dt_first_time, \
+            self.dt_last_time, self.webrequests)
 
 def get_inclusive_duration(t2, t1) -> timedelta:
     """ return a timedelta between t2 and t1 + 1 
