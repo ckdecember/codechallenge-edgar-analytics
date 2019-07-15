@@ -80,7 +80,7 @@ class Sessionization:
 
                 key = lineDict['ip']
 
-                logger.info("key is {}".format(key))
+                logger.info("key is {} timestamp is {}".format(key, current_timestamp))
 
                 # first key ever, continue, nothing to check
                 if not ss.session_list:
@@ -90,17 +90,17 @@ class Sessionization:
                     continue
 
                 # checks the existing list and expires old sessions
-                self.flush_expired_sessions(dt_current_timestamp)
-
                 # add new key to a non-zero list
                 current_session = ss.find_session(key)
                 if not current_session:
                     logger.info("adding new key {} {}".format(key, lineDict['time']))
                     ss.add_session(key, lineDict, current_timestamp)
                     logger.info("new session list {}".format(ss.session_list))
+                    # maybe need to update the last_time here
                 else:
                     ss.update_session(current_session, dt_current_timestamp)
 
+                self.flush_expired_sessions(dt_current_timestamp)
                 """
                 # look for session, if not found
                 current_session = ss.find_session(key)
@@ -156,14 +156,20 @@ class Sessionization:
         iterates current session list for expired sessions 
         also writes out the session to the session output
         """
+
+        # at time current_timestamp == 00:02, 
+        # current_timestamp - session.dt_last_accessed >= 2.  or greater.
+        # compare current_timestamp and LAST accessed.
+        # in update, update last_accessed to currenttime 
+
         sl = self.session_store.session_list
         flush_key_list = []
         for s in sl:
             # use get_inclusive
-            dt_inclusive_duration = get_inclusive_duration(dt_current_timestamp, s.dt_first_time)
+            dt_inclusive_duration = get_inclusive_duration(dt_current_timestamp, s.dt_last_time)
             logger.info("inclusive_duration is {} ".format(dt_inclusive_duration))
             #if dt_inclusive_duration > self.dt_inactivity_period:
-            if dt_inclusive_duration > self.dt_inactivity_period:
+            if dt_inclusive_duration >= self.dt_inactivity_period:
                 logger.info("flushing old key {} curtime {} firsttime {} last time {} \
                     duration {}".format(s.key, dt_current_timestamp, \
                         s.dt_first_time, s.dt_last_time, \
@@ -196,7 +202,7 @@ class session_store():
     def update_session(self, current_session, dt_current):
         cs = current_session
         cs.webrequests += 1
-        cs.dt_duration = get_inclusive_duration(dt_current, cs.dt_first_time)
+        cs.dt_duration = get_inclusive_duration(dt_current, cs.dt_last_time)
         #if (cs.dt_duration.total_seconds() == 0):
         #    cs.dt_duration = timedelta(seconds=1)
         cs.dt_last_time = dt_current
