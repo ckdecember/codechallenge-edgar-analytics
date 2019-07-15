@@ -15,3 +15,5 @@ The log parser logic will either add to the list, update sessions in the list, o
 
 As sessions are updated or the end of the file, the sessionization file is updated.
 
+# Technology
+Just Python 
