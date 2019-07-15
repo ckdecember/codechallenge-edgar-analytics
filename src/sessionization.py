@@ -5,7 +5,7 @@ take two input files (log and inactivity) and outputs a sessionization file that
 
 """
 
-__version__ = '0.1'
+__version__ = '0.2'
 __author__ = 'Carroll Kong'
 
 import argparse
@@ -41,7 +41,7 @@ class Sessionization:
         self.output_list = []
     
     def set_inactivity_period(self):
-        """ get the inactivity period """
+        """ set the inactivity period as a class member """
         with open(self.inactivity_file, "r") as inactivefh:
             for line in inactivefh:
                 try:
@@ -103,26 +103,6 @@ class Sessionization:
                 # maybe need somethign to update ALL sessions, because jkr when in early?
 
                 self.flush_expired_sessions(dt_current_timestamp)
-                """
-                # look for session, if not found
-                current_session = ss.find_session(key)
-                # new session
-                if not current_session:
-                    logger.info("adding new key {} {}".format(key, lineDict['time']))
-                    ss.add_session(key, lineDict, current_timestamp)
-                    current_session = ss.find_session(key)
-
-                # found a session, if valid by timestamp, update it
-                if self.is_valid_session_by_time(dt_current_timestamp, current_session.dt_first_time):
-                    logger.info("session is valid by time {} {} {}".format(key, dt_current_timestamp, current_session.dt_first_time))
-                    ss.update_session(current_session, dt_current_timestamp)
-                else:
-                    logger.info("session is NOT valid by time {} {} {}".format(key, dt_current_timestamp, current_session.dt_first_time))
-                    # ok, session is expired.  but check ALL old sessions, not just ones matching your timestamp
-                    # account for new session with old IP address
-                    logger.info("adding new key as final resort {} {}".format(key, lineDict['time']))
-                    ss.add_session(key, lineDict, current_timestamp)
-                """
                 logger.info("####################end key loop####################")
                 
         sl = self.session_store.session_list
@@ -141,6 +121,7 @@ class Sessionization:
         return
     
     def clean_stale_output(self):
+        """ renames old session files, this breaks the insight provided test suite though """
         try:
             os.rename(self.sessionization_file, self.sessionization_file + ".bak")
         except:
@@ -167,10 +148,8 @@ class Sessionization:
         sl = self.session_store.session_list
         flush_key_list = []
         for s in sl:
-            # use get_inclusive
             dt_inclusive_duration = get_inclusive_duration(dt_current_timestamp, s.dt_last_time)
             logger.info("inclusive_duration is {} ".format(dt_inclusive_duration))
-            #if dt_inclusive_duration > self.dt_inactivity_period:
             if dt_inclusive_duration >= self.dt_inactivity_period:
                 logger.info("flushing old key {} curtime {} firsttime {} last time {} \
                     duration {}".format(s.key, dt_current_timestamp, \
@@ -202,6 +181,7 @@ class session_store():
                 return i
     
     def update_session(self, current_session, dt_current):
+        """ increment webrequests and last time accessed"""
         cs = current_session
         cs.webrequests += 1
 
